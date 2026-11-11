@@ -1157,6 +1157,11 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"detail" : @"",
             @"cellType" : @6,
             @"imageName" : @"ic_video_outlined_20"},
+          @{@"identifier" : @"DYYYDisableLiveCardAutoJump",
+            @"title" : @"直播卡片不自动跳转",
+            @"detail" : @"",
+            @"cellType" : @6,
+            @"imageName" : @"ic_video_outlined_20"},
           @{
               @"identifier" : @"DYYYSkipAllLive",
               @"title" : @"全部过滤直播",

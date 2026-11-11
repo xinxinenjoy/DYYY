@@ -41,6 +41,7 @@ DYYY_FILES += DYYYDownloadScheduler.m
 DYYY_FILES += DYYYCommentPlaybackCoordinator.m DYYYCommentPlaybackHooks.xm
 DYYY_FILES += DYYYFloatingButtonCoordinator.m
 DYYY_FILES += DYYYLoginBypassManager.m DYYYLoginRepairHooks.m DYYYPrivacyRecordUploadGuard.m DYYYHideMessageAndMinePageHooks.m DYYYExactInteractionCountHooks.m DYYYRuntimeHookInstaller.m DYYYFeatureUI.m DYYYLoginBypassHooks.xm DYYYPrivacyHooks.xm DYYYFeatureHooks.xm
+DYYY_FILES += DYYYLiveCardGuard.m DYYYLiveCardGuardHooks.xm
 DYYY_CFLAGS = -fobjc-arc -w
 DYYY_LDFLAGS = -weak_framework AVFAudio
 DYYY_FRAMEWORKS = CoreAudio

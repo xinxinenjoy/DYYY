@@ -170,6 +170,37 @@ jobs:
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
         run: .github/scripts/extract-release-dylib.sh
 
+      # 巨魔注入器（TrollFools 等）需要裸 dylib：三种打包方案的依赖路径不同，
+      # 全部产出，注入后哪个能正常加载就用哪个。
+      - name: Extract dylibs for TrollFools
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version=$(awk -F': ' '$1 == "Version" { print $2; exit }' control)
+          for scheme in rootful rootless roothide; do
+            matches=(packages/*-"${scheme}".deb)
+            if [ "${#matches[@]}" -eq 0 ]; then
+              echo "skip ${scheme}: package not found"
+              continue
+            fi
+            work_dir=$(mktemp -d)
+            (
+              cd "$work_dir"
+              ar -x "$GITHUB_WORKSPACE/${matches[0]}"
+              tar -xf data.tar.* 2>/dev/null || tar -xf data.tar 2>/dev/null
+            )
+            dylib_path=$(find "$work_dir" -type f -name 'DYYY.dylib' | head -n 1)
+            if [ -z "$dylib_path" ]; then
+              echo "skip ${scheme}: DYYY.dylib not found in package"
+              rm -rf "$work_dir"
+              continue
+            fi
+            cp "$dylib_path" "packages/DYYY_${version}-${scheme}.dylib"
+            lipo -info "packages/DYYY_${version}-${scheme}.dylib" || true
+            rm -rf "$work_dir"
+          done
+          ls -l packages/*.dylib
+
       - name: Upload package artifacts
         uses: actions/upload-artifact@v7
         with:
