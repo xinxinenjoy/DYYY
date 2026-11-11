@@ -10,7 +10,7 @@ static BOOL gLiveCardGuardEnabled = NO;
 /// 诊断模式：忽略开关强制生效，并把判定细节用 Toast 暴露出来
 static NSInteger gDiagShownCount = 0;
 static NSTimeInterval gDiagLastShownTime = 0;
-static const NSInteger kDYYYDiagMaxCount = 12;
+static const NSInteger kDYYYDiagMaxCount = 16;
 
 @interface DYYYLiveCardGuard ()
 
@@ -18,6 +18,9 @@ static const NSInteger kDYYYDiagMaxCount = 12;
 + (BOOL)dyyy_isFeedScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isLiveCardVisibleInScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isPreStreamControllerPresentForScrollView:(UIScrollView *)scrollView;
++ (NSArray<NSString *> *)dyyy_visibleClassNamesMatching:(NSArray<NSString *> *)keywords
+                                                 inView:(UIView *)rootView
+                                                  limit:(NSInteger)limit;
 + (void)dyyy_diagToast:(NSString *)text;
 
 @end
@@ -60,27 +63,77 @@ static const NSInteger kDYYYDiagMaxCount = 12;
         return NO;
     }
 
-    // ★ 能走到这里，说明发生了一次「非手势驱动 + 整屏位移」的滚动，
-    //   这正是自动跳转的特征，开始判定它是否属于直播卡片场景
+    // ★ 能走到这里，说明发生了一次「非手势驱动 + 整屏位移」的滚动。
+    //   实测确认：抖音的自动跳转确实走这条路，且此时宿主控制器就是推荐流。
     BOOL isFeed = [self dyyy_isFeedScrollView:scrollView];
     BOOL isLive = [self dyyy_isLiveCardVisibleInScrollView:scrollView];
 
-    UIViewController *hostController = [DYYYUtils firstAvailableViewControllerFromView:scrollView];
-    NSString *controllerName = hostController ? NSStringFromClass([hostController class]) : @"nil";
-    if (controllerName.length > 16) {
-        controllerName = [controllerName substringToIndex:16];
-    }
+    // 诊断：报告角标实例数与视图树里真实的 Live 相关类名
+    Class markClass = NSClassFromString(@"AWEFeedLiveMarkView");
+    NSInteger markCount = markClass
+        ? (NSInteger)[DYYYUtils findAllSubviewsOfClass:markClass inContainer:scrollView].count
+        : -1;
 
-    [self dyyy_diagToast:[NSString stringWithFormat:@"F%d L%d dy=%.0f %@",
+    NSArray<NSString *> *liveNames = [self dyyy_visibleClassNamesMatching:@[@"Live", @"Mark", @"PreStream"]
+                                                                   inView:scrollView
+                                                                    limit:3];
+
+    [self dyyy_diagToast:[NSString stringWithFormat:@"F%d L%d m%ld dy%.0f",
                           isFeed ? 1 : 0,
                           isLive ? 1 : 0,
-                          deltaY,
-                          controllerName]];
+                          (long)markCount,
+                          deltaY]];
+
+    NSString *namesText = liveNames.count > 0 ? [liveNames componentsJoinedByString:@"/"] : @"无";
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [self dyyy_diagToast:[NSString stringWithFormat:@"Live:%@", namesText]];
+    });
 
     return isFeed && isLive;
 }
 
 #pragma mark - Diagnostics (诊断)
+
++ (NSArray<NSString *> *)dyyy_visibleClassNamesMatching:(NSArray<NSString *> *)keywords
+                                                 inView:(UIView *)rootView
+                                                  limit:(NSInteger)limit {
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    if (!rootView || keywords.count == 0 || limit <= 0) {
+        return names;
+    }
+
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:rootView];
+    NSInteger visited = 0;
+
+    while (queue.count > 0 && visited < 2000 && (NSInteger)names.count < limit) {
+        UIView *view = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        visited++;
+
+        if (view.window) {
+            NSString *className = NSStringFromClass([view class]);
+            if (className.length > 0) {
+                BOOL matched = NO;
+                for (NSString *keyword in keywords) {
+                    if ([className containsString:keyword]) {
+                        matched = YES;
+                        break;
+                    }
+                }
+                if (matched && ![names containsObject:className]) {
+                    [names addObject:className];
+                }
+            }
+        }
+
+        for (UIView *subview in view.subviews) {
+            [queue addObject:subview];
+        }
+    }
+
+    return [names copy];
+}
 
 + (void)dyyy_diagToast:(NSString *)text {
     if (gDiagShownCount >= kDYYYDiagMaxCount) {
@@ -88,7 +141,7 @@ static const NSInteger kDYYYDiagMaxCount = 12;
     }
 
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if (now - gDiagLastShownTime < 0.8) {
+    if (now - gDiagLastShownTime < 0.2) {
         return;
     }
     gDiagLastShownTime = now;
