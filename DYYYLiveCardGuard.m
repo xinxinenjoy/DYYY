@@ -7,12 +7,18 @@ static NSString *const kDYYYDisableLiveCardAutoJumpKey = @"DYYYDisableLiveCardAu
 /// 开关缓存值，避免滚动回调里反复读取 NSUserDefaults
 static BOOL gLiveCardGuardEnabled = NO;
 
+/// 诊断模式：忽略开关强制生效，并把判定细节用 Toast 暴露出来
+static NSInteger gDiagShownCount = 0;
+static NSTimeInterval gDiagLastShownTime = 0;
+static const NSInteger kDYYYDiagMaxCount = 12;
+
 @interface DYYYLiveCardGuard ()
 
 + (BOOL)dyyy_isUserDrivenScroll:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isFeedScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isLiveCardVisibleInScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isPreStreamControllerPresentForScrollView:(UIScrollView *)scrollView;
++ (void)dyyy_diagToast:(NSString *)text;
 
 @end
 
@@ -33,8 +39,8 @@ static BOOL gLiveCardGuardEnabled = NO;
 + (BOOL)shouldBlockProgrammaticScroll:(UIScrollView *)scrollView
                          targetOffset:(CGPoint)targetOffset
                              animated:(BOOL)animated {
-    // 开关关闭时仅有一次布尔判断，对滚动性能无影响
-    if (!gLiveCardGuardEnabled || !scrollView) {
+    // 诊断版：忽略开关，强制生效，便于直接观察判定过程
+    if (!scrollView) {
         return NO;
     }
 
@@ -54,17 +60,47 @@ static BOOL gLiveCardGuardEnabled = NO;
         return NO;
     }
 
-    // 3. 滚动容器必须属于推荐流
-    if (![self dyyy_isFeedScrollView:scrollView]) {
-        return NO;
+    // ★ 能走到这里，说明发生了一次「非手势驱动 + 整屏位移」的滚动，
+    //   这正是自动跳转的特征，开始判定它是否属于直播卡片场景
+    BOOL isFeed = [self dyyy_isFeedScrollView:scrollView];
+    BOOL isLive = [self dyyy_isLiveCardVisibleInScrollView:scrollView];
+
+    UIViewController *hostController = [DYYYUtils firstAvailableViewControllerFromView:scrollView];
+    NSString *controllerName = hostController ? NSStringFromClass([hostController class]) : @"nil";
+    if (controllerName.length > 16) {
+        controllerName = [controllerName substringToIndex:16];
     }
 
-    // 4. 当前可见区域必须正在展示直播卡片
-    if (![self dyyy_isLiveCardVisibleInScrollView:scrollView]) {
-        return NO;
+    [self dyyy_diagToast:[NSString stringWithFormat:@"F%d L%d dy=%.0f %@",
+                          isFeed ? 1 : 0,
+                          isLive ? 1 : 0,
+                          deltaY,
+                          controllerName]];
+
+    return isFeed && isLive;
+}
+
+#pragma mark - Diagnostics (诊断)
+
++ (void)dyyy_diagToast:(NSString *)text {
+    if (gDiagShownCount >= kDYYYDiagMaxCount) {
+        return;
     }
 
-    return YES;
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    if (now - gDiagLastShownTime < 0.8) {
+        return;
+    }
+    gDiagLastShownTime = now;
+    gDiagShownCount++;
+
+    NSLog(@"[DYYY][LiveCardDiag] %@", text);
+
+    NSString *message = [NSString stringWithFormat:@"诊断%ld/%ld  %@",
+                         (long)gDiagShownCount,
+                         (long)kDYYYDiagMaxCount,
+                         text];
+    [DYYYUtils showToast:message];
 }
 
 #pragma mark - Detectors (判定细节)

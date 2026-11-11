@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import "AwemeHeaders.h"
 #import "DYYYLiveCardGuard.h"
 #import "DYYYUtils.h"
@@ -64,9 +65,19 @@ static void DYYYLiveCardGuardDidBlock(BOOL animated) {
 
     Class scrollViewClass = objc_getClass("UIScrollView");
     if (scrollViewClass) {
-        NSLog(@"[DYYY] LiveCardGuard 诊断版 B：安装 UIScrollView hook");
+        NSLog(@"[DYYY] LiveCardGuard 诊断版 C：安装 UIScrollView hook");
         %init(DYYYLiveCardGuardGroup);
     } else {
-        NSLog(@"[DYYY] LiveCardGuard 诊断版 B：UIScrollView 尚未加载，跳过安装");
+        NSLog(@"[DYYY] LiveCardGuard 诊断版 C：UIScrollView 尚未加载，跳过安装");
     }
+
+    // 启动提示：确认 hook 活着，并报告三个关键识别类是否存在（诊断用）
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        NSString *markState = objc_getClass("AWEFeedLiveMarkView") ? @"1" : @"0";
+        NSString *feedState = objc_getClass("AWEFeedTableViewController") ? @"1" : @"0";
+        NSString *preState = objc_getClass("AWELiveNewPreStreamViewController") ? @"1" : @"0";
+        [DYYYUtils showToast:[NSString stringWithFormat:@"诊断C mark%@ feed%@ pre%@",
+                               markState, feedState, preState]];
+    });
 }
