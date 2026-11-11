@@ -27,13 +27,12 @@ static void DYYYLiveCardGuardDidBlock(BOOL animated) {
 }
 
 // ============================================================
-// 诊断版 B：改为「分组 + %ctor 内 %init」安装，与项目其余 hook 一致
+// 直播卡片防自动跳转：拦截 UIScrollView 的编程式滚动
 //
-// 原写法使用无分组 %hook，会由 Logos 在 constructor 阶段自动安装，
-// 安装时机不受控；项目本体所有 hook 都走 %group + %init。
-// 同时移除了 %ctor 里对 NSUserDefaultsDidChangeNotification 的监听，
-// 避免在 dylib 加载早期注册通知观察者带来的风险。
-// 代价：切换开关后需重启抖音才生效。
+// 采用「分组 + %ctor 内 %init」安装，与项目其余 hook 保持一致。
+// 早期版本使用无分组 %hook，由 Logos 在 constructor 阶段自动安装，
+// 实测会导致抖音启动卡死；改为分组安装后正常。
+// 注意：切换开关后需重启抖音才生效。
 // ============================================================
 
 %group DYYYLiveCardGuardGroup
@@ -65,19 +64,6 @@ static void DYYYLiveCardGuardDidBlock(BOOL animated) {
 
     Class scrollViewClass = objc_getClass("UIScrollView");
     if (scrollViewClass) {
-        NSLog(@"[DYYY] LiveCardGuard 诊断版 C：安装 UIScrollView hook");
         %init(DYYYLiveCardGuardGroup);
-    } else {
-        NSLog(@"[DYYY] LiveCardGuard 诊断版 C：UIScrollView 尚未加载，跳过安装");
     }
-
-    // 启动提示：确认 hook 活着，并报告三个关键识别类是否存在（诊断用）
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        NSString *markState = objc_getClass("AWEFeedLiveMarkView") ? @"1" : @"0";
-        NSString *feedState = objc_getClass("AWEFeedTableViewController") ? @"1" : @"0";
-        NSString *preState = objc_getClass("AWELiveNewPreStreamViewController") ? @"1" : @"0";
-        [DYYYUtils showToast:[NSString stringWithFormat:@"诊断C mark%@ feed%@ pre%@",
-                               markState, feedState, preState]];
-    });
 }

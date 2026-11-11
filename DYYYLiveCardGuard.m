@@ -7,21 +7,13 @@ static NSString *const kDYYYDisableLiveCardAutoJumpKey = @"DYYYDisableLiveCardAu
 /// 开关缓存值，避免滚动回调里反复读取 NSUserDefaults
 static BOOL gLiveCardGuardEnabled = NO;
 
-/// 诊断模式：忽略开关强制生效，并把判定细节用 Toast 暴露出来
-static NSInteger gDiagShownCount = 0;
-static NSTimeInterval gDiagLastShownTime = 0;
-static const NSInteger kDYYYDiagMaxCount = 16;
-
 @interface DYYYLiveCardGuard ()
 
 + (BOOL)dyyy_isUserDrivenScroll:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isFeedScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isLiveCardVisibleInScrollView:(UIScrollView *)scrollView;
++ (BOOL)dyyy_hasVisibleViewOfClass:(Class)targetClass inScrollView:(UIScrollView *)scrollView;
 + (BOOL)dyyy_isPreStreamControllerPresentForScrollView:(UIScrollView *)scrollView;
-+ (NSArray<NSString *> *)dyyy_visibleClassNamesMatching:(NSArray<NSString *> *)keywords
-                                                 inView:(UIView *)rootView
-                                                  limit:(NSInteger)limit;
-+ (void)dyyy_diagToast:(NSString *)text;
 
 @end
 
@@ -42,8 +34,8 @@ static const NSInteger kDYYYDiagMaxCount = 16;
 + (BOOL)shouldBlockProgrammaticScroll:(UIScrollView *)scrollView
                          targetOffset:(CGPoint)targetOffset
                              animated:(BOOL)animated {
-    // 诊断版：忽略开关，强制生效，便于直接观察判定过程
-    if (!scrollView) {
+    // 开关关闭时仅有一次布尔判断，对滚动性能无影响
+    if (!gLiveCardGuardEnabled || !scrollView) {
         return NO;
     }
 
@@ -63,97 +55,17 @@ static const NSInteger kDYYYDiagMaxCount = 16;
         return NO;
     }
 
-    // ★ 能走到这里，说明发生了一次「非手势驱动 + 整屏位移」的滚动。
-    //   实测确认：抖音的自动跳转确实走这条路，且此时宿主控制器就是推荐流。
-    BOOL isFeed = [self dyyy_isFeedScrollView:scrollView];
-    BOOL isLive = [self dyyy_isLiveCardVisibleInScrollView:scrollView];
-
-    // 诊断：报告角标实例数与视图树里真实的 Live 相关类名
-    Class markClass = NSClassFromString(@"AWEFeedLiveMarkView");
-    NSInteger markCount = markClass
-        ? (NSInteger)[DYYYUtils findAllSubviewsOfClass:markClass inContainer:scrollView].count
-        : -1;
-
-    NSArray<NSString *> *liveNames = [self dyyy_visibleClassNamesMatching:@[@"Live", @"Mark", @"PreStream"]
-                                                                   inView:scrollView
-                                                                    limit:3];
-
-    [self dyyy_diagToast:[NSString stringWithFormat:@"F%d L%d m%ld dy%.0f",
-                          isFeed ? 1 : 0,
-                          isLive ? 1 : 0,
-                          (long)markCount,
-                          deltaY]];
-
-    NSString *namesText = liveNames.count > 0 ? [liveNames componentsJoinedByString:@"/"] : @"无";
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [self dyyy_diagToast:[NSString stringWithFormat:@"Live:%@", namesText]];
-    });
-
-    return isFeed && isLive;
-}
-
-#pragma mark - Diagnostics (诊断)
-
-+ (NSArray<NSString *> *)dyyy_visibleClassNamesMatching:(NSArray<NSString *> *)keywords
-                                                 inView:(UIView *)rootView
-                                                  limit:(NSInteger)limit {
-    NSMutableArray<NSString *> *names = [NSMutableArray array];
-    if (!rootView || keywords.count == 0 || limit <= 0) {
-        return names;
+    // 3. 滚动容器必须属于推荐流
+    if (![self dyyy_isFeedScrollView:scrollView]) {
+        return NO;
     }
 
-    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:rootView];
-    NSInteger visited = 0;
-
-    while (queue.count > 0 && visited < 2000 && (NSInteger)names.count < limit) {
-        UIView *view = queue.firstObject;
-        [queue removeObjectAtIndex:0];
-        visited++;
-
-        if (view.window) {
-            NSString *className = NSStringFromClass([view class]);
-            if (className.length > 0) {
-                BOOL matched = NO;
-                for (NSString *keyword in keywords) {
-                    if ([className containsString:keyword]) {
-                        matched = YES;
-                        break;
-                    }
-                }
-                if (matched && ![names containsObject:className]) {
-                    [names addObject:className];
-                }
-            }
-        }
-
-        for (UIView *subview in view.subviews) {
-            [queue addObject:subview];
-        }
+    // 4. 当前可见区域必须正在展示直播卡片
+    if (![self dyyy_isLiveCardVisibleInScrollView:scrollView]) {
+        return NO;
     }
 
-    return [names copy];
-}
-
-+ (void)dyyy_diagToast:(NSString *)text {
-    if (gDiagShownCount >= kDYYYDiagMaxCount) {
-        return;
-    }
-
-    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if (now - gDiagLastShownTime < 0.2) {
-        return;
-    }
-    gDiagLastShownTime = now;
-    gDiagShownCount++;
-
-    NSLog(@"[DYYY][LiveCardDiag] %@", text);
-
-    NSString *message = [NSString stringWithFormat:@"诊断%ld/%ld  %@",
-                         (long)gDiagShownCount,
-                         (long)kDYYYDiagMaxCount,
-                         text];
-    [DYYYUtils showToast:message];
+    return YES;
 }
 
 #pragma mark - Detectors (判定细节)
@@ -202,39 +114,57 @@ static const NSInteger kDYYYDiagMaxCount = 16;
     return NO;
 }
 
-/// 当前可见区域内是否存在处于显示状态的直播卡片角标
+/// 当前可见区域内是否存在处于显示状态的直播卡片
+///
+/// 识别依据来自真机实测（抖音 41.1.0）：
+///   主依据 AWEFeedLiveStreamTableViewCell      —— 直播预览卡片的 cell 本体
+///   辅依据 AWELivePreStream4LayerContainerView —— 预览流四层容器
+///   辅依据 AWEFeedLiveMarkView                 —— 直播角标（部分版本使用）
 + (BOOL)dyyy_isLiveCardVisibleInScrollView:(UIScrollView *)scrollView {
-    Class markClass = NSClassFromString(@"AWEFeedLiveMarkView");
+    NSArray<NSString *> *liveClassNames = @[
+        @"AWEFeedLiveStreamTableViewCell",
+        @"AWELivePreStream4LayerContainerView",
+        @"AWEFeedLiveMarkView"
+    ];
 
-    if (markClass) {
-        NSArray<__kindof UIView *> *markViews = [DYYYUtils findAllSubviewsOfClass:markClass inContainer:scrollView];
-        CGRect visibleRect = CGRectMake(scrollView.contentOffset.x,
-                                        scrollView.contentOffset.y,
-                                        CGRectGetWidth(scrollView.bounds),
-                                        CGRectGetHeight(scrollView.bounds));
-
-        for (UIView *markView in markViews) {
-            if (markView.hidden || markView.alpha < 0.05f || !markView.window) {
-                continue;
-            }
-
-            CGRect frameInScrollView = [markView convertRect:markView.bounds toView:scrollView];
-            if (CGRectGetHeight(frameInScrollView) <= 0 || CGRectGetWidth(frameInScrollView) <= 0) {
-                continue;
-            }
-            if (CGRectIntersectsRect(frameInScrollView, visibleRect)) {
-                return YES;
-            }
-        }
-
-        // 找到过角标类但都不在可见区，说明当前不是直播卡片
-        if (markViews.count > 0) {
-            return NO;
+    for (NSString *className in liveClassNames) {
+        Class liveClass = NSClassFromString(className);
+        if (liveClass && [self dyyy_hasVisibleViewOfClass:liveClass inScrollView:scrollView]) {
+            return YES;
         }
     }
 
-    // 角标类缺失时的兜底：检查控制器链上是否存在直播预览流容器
+    // 以上视图标识都取不到时的兜底：控制器链上存在直播预览流容器
     return [self dyyy_isPreStreamControllerPresentForScrollView:scrollView];
+}
+
+/// 指定类在滚动视图内是否存在「真正可见」的实例
++ (BOOL)dyyy_hasVisibleViewOfClass:(Class)targetClass inScrollView:(UIScrollView *)scrollView {
+    NSArray<__kindof UIView *> *views = [DYYYUtils findAllSubviewsOfClass:targetClass inContainer:scrollView];
+    if (views.count == 0) {
+        return NO;
+    }
+
+    CGRect visibleRect = CGRectMake(scrollView.contentOffset.x,
+                                    scrollView.contentOffset.y,
+                                    CGRectGetWidth(scrollView.bounds),
+                                    CGRectGetHeight(scrollView.bounds));
+
+    for (UIView *view in views) {
+        if (view.hidden || view.alpha < 0.05f || !view.window) {
+            continue;
+        }
+
+        CGRect frameInScrollView = [view convertRect:view.bounds toView:scrollView];
+        if (CGRectGetHeight(frameInScrollView) <= 0 || CGRectGetWidth(frameInScrollView) <= 0) {
+            continue;
+        }
+        if (CGRectIntersectsRect(frameInScrollView, visibleRect)) {
+            return YES;
+        }
+    }
+
+    return NO;
 }
 
 /// 兜底判定：控制器父链上存在直播预览流控制器
