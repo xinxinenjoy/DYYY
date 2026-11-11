@@ -75,7 +75,7 @@ jobs:
 
       - name: Check cache
         run: |
-          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
+          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1`-rh2 >> $GITHUB_ENV
 
       - name: Use cache
         id: cache
@@ -109,8 +109,13 @@ jobs:
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           echo "$THEOS/bin" >> "$GITHUB_PATH"
+          # 官方 theos 不含 roothide 打包方案，必须用 roothide 维护的分支
+          if [ -d "$THEOS" ] && [ ! -f "$THEOS/makefiles/package/roothide.mk" ]; then
+            echo "Cached theos lacks roothide scheme, removing."
+            rm -rf "$THEOS"
+          fi
           if [ ! -d "$THEOS/makefiles" ]; then
-            git clone --recursive https://github.com/theos/theos.git "$THEOS"
+            git clone --recursive https://github.com/roothide/theos.git "$THEOS"
           else
             echo "Theos already cached."
           fi
