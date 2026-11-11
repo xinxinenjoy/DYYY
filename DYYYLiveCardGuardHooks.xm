@@ -25,6 +25,18 @@ static void DYYYLiveCardGuardDidBlock(BOOL animated) {
     });
 }
 
+// ============================================================
+// 诊断版 B：改为「分组 + %ctor 内 %init」安装，与项目其余 hook 一致
+//
+// 原写法使用无分组 %hook，会由 Logos 在 constructor 阶段自动安装，
+// 安装时机不受控；项目本体所有 hook 都走 %group + %init。
+// 同时移除了 %ctor 里对 NSUserDefaultsDidChangeNotification 的监听，
+// 避免在 dylib 加载早期注册通知观察者带来的风险。
+// 代价：切换开关后需重启抖音才生效。
+// ============================================================
+
+%group DYYYLiveCardGuardGroup
+
 %hook UIScrollView
 
 - (void)setContentOffset:(CGPoint)contentOffset {
@@ -45,14 +57,16 @@ static void DYYYLiveCardGuardDidBlock(BOOL animated) {
 
 %end
 
+%end
+
 %ctor {
     [DYYYLiveCardGuard reloadConfiguration];
 
-    // 设置页切换开关后无需重启抖音即可生效
-    [[NSNotificationCenter defaultCenter] addObserverForName:NSUserDefaultsDidChangeNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue]
-                                                  usingBlock:^(__unused NSNotification *note) {
-                                                    [DYYYLiveCardGuard reloadConfiguration];
-                                                  }];
+    Class scrollViewClass = objc_getClass("UIScrollView");
+    if (scrollViewClass) {
+        NSLog(@"[DYYY] LiveCardGuard 诊断版 B：安装 UIScrollView hook");
+        %init(DYYYLiveCardGuardGroup);
+    } else {
+        NSLog(@"[DYYY] LiveCardGuard 诊断版 B：UIScrollView 尚未加载，跳过安装");
+    }
 }
