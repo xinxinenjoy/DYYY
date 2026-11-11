@@ -99,7 +99,8 @@ jobs:
           done
 
       - name: Prepare Theos
-        uses: huami1314/theos-action@main
+        # 原 huami1314/theos-action 仓库已失效（404），改用社区维护的等价 action
+        uses: Randomblock1/theos-action@main
 
       - name: Setup GNU Make
         run: |
