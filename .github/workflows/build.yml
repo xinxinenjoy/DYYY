@@ -99,8 +99,27 @@ jobs:
           done
 
       - name: Prepare Theos
-        # 原 huami1314/theos-action 仓库已失效（404），改用社区维护的等价 action
-        uses: Randomblock1/theos-action@main
+        # 不使用第三方 action：原 huami1314/theos-action 已 404，
+        # Randomblock1/theos-action 在 macOS 26 上解压 SDK 会因符号链接权限失败。
+        # 这里直接 git clone（git 能正确还原符号链接）。
+        run: |
+          set -euo pipefail
+          export THEOS="$GITHUB_WORKSPACE/theos"
+          brew install ldid make || true
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$THEOS/bin" >> "$GITHUB_PATH"
+          if [ ! -d "$THEOS/makefiles" ]; then
+            git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          else
+            echo "Theos already cached."
+          fi
+          if [ ! -d "$THEOS/sdks" ] || [ -z "$(ls -A "$THEOS/sdks" 2>/dev/null || true)" ]; then
+            git clone --depth 1 https://github.com/theos/sdks.git "$THEOS/sdks"
+          else
+            echo "SDKs already cached."
+          fi
+          ls "$THEOS/sdks"
 
       - name: Setup GNU Make
         run: |
